@@ -1,7 +1,7 @@
 -- PetrixHub Game Loader
 local gameId = game.PlaceId
 local gameName = game:GetService("MarketplaceService"):GetProductInfo(gameId).Name
-local baseUrl = "https://raw.githubusercontent.com/petrixbot/hub/refs/heads/main/game/"
+local baseUrl = "https://raw.githubusercontent.com/petrixbot/roblox-hub/refs/heads/main/game/"
 
 -- Supported Games Map
 local supportedGames = {
