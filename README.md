@@ -12,7 +12,7 @@ Copy the loader below and paste it into your executor:
 -- Petrix Hub
 -- Free to use! Happy exploiting!
 -- Be careful of scams or fake sellers!
-loadstring(game:HttpGet("https://raw.githubusercontent.com/petrixbot/hub/refs/heads/main/loader.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/petrixbot/roblox-hub/refs/heads/main/loader"))()
 ```
 
 ## ✨ Features
