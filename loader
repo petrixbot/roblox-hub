@@ -7,6 +7,7 @@ local baseUrl = "https://raw.githubusercontent.com/petrixbot/roblox-hub/refs/hea
 local supportedGames = {
     [84988808589910] = "84988808589910.lua", -- Rogue Piece (Main Map)
     [96105075537655] = "84988808589910.lua", -- Rogue Piece (Dungeon Map)
+    [101348054552567] = "101348054552567.lua", -- Dance Now
 }
 
 -- Load Script
