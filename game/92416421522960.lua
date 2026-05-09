@@ -1783,7 +1783,8 @@ do
                     return
                 end
                 
-                local progression = getData("specialRollProgression") or {}
+                -- Use realtime cache if available, fallback to getData
+                local progression = getgenv().__specialRollProgressionCache or getData("specialRollProgression") or {}
                 local items = getData("items") or {}
                 local armed = getData("armedSpecialDice") or {}
                 local lines = {}
@@ -1853,7 +1854,51 @@ do
     end)
 end
 
--- Dice Stacker
+-- Dice Stacker - Realtime Listener for specialRollProgression
+task.spawn(function()
+    local DataServiceEvent = nil
+    pcall(function()
+        -- Try both networker versions
+        local path1 = ReplicatedStorage.Packages._Index:FindFirstChild("leifstout_networker@0.3.1")
+        local path2 = ReplicatedStorage.Packages._Index:FindFirstChild("leifstout_networker@0.2.1")
+        
+        if path1 and path1:FindFirstChild("networker") then
+            DataServiceEvent = path1.networker._remotes.DataService.RemoteEvent
+        elseif path2 and path2:FindFirstChild("networker") then
+            DataServiceEvent = path2.networker._remotes.DataService.RemoteEvent
+        end
+    end)
+    
+    if DataServiceEvent then
+        -- Cache untuk specialRollProgression realtime
+        getgenv().__specialRollProgressionCache = {}
+        
+        -- Listen untuk update dari server
+        DataServiceEvent.OnClientEvent:Connect(function(updateType, key, value)
+            pcall(function()
+                -- Update type 1 = data update
+                if updateType == 1 and key == "specialRollProgression" and type(value) == "table" then
+                    getgenv().__specialRollProgressionCache = value
+                    
+                    -- Debug log (optional, bisa dihapus nanti)
+                    if S.DiceEnabled then
+                        local lines = {}
+                        for rollType, data in pairs(value) do
+                            table.insert(lines, rollType .. ": " .. tostring(data.rollsUntilNext) .. " left | " .. (data.paused and "Paused" or "Running"))
+                        end
+                        -- print("[Dice Listener] " .. table.concat(lines, " | "))
+                    end
+                end
+            end)
+        end)
+        
+        print("[.petrixhub] Dice Stacker: Realtime listener active")
+    else
+        warn("[.petrixhub] Dice Stacker: Could not find DataService RemoteEvent")
+    end
+end)
+
+-- Dice Stacker - Task 1: Auto Pause Special Rolls at 0
 task.spawn(function()
     local RemoteFunction = nil
     pcall(function()
@@ -1886,15 +1931,14 @@ task.spawn(function()
         return result
     end
     
-    while task.wait() do
-        if S.DiceEnabled and #S.DiceSaveRolls > 0 then
+    while task.wait(0.5) do
+        if S.DiceEnabled and #S.DiceSaveRolls > 0 and not S._diceStackBusy then
             pcall(function()
-                local progression = getData("specialRollProgression") or {}
-                local items = getData("items") or {}
+                -- Use realtime cache if available, fallback to getData
+                local progression = getgenv().__specialRollProgressionCache or getData("specialRollProgression") or {}
                 local ordered = getSelectedByPriority()
                 
-                -- Step 1: Priority-based pause (pause at 0, but only if higher priority already paused)
-                local allAtZero = true
+                -- Priority-based pause: pause at 0, but only if higher priority already paused
                 local currentPhase = 0
                 
                 for i, kind in ipairs(ordered) do
@@ -1917,28 +1961,80 @@ task.spawn(function()
                         end
                     end
                     
-                    if rollsLeft == 0 then
-                        -- This roll is at 0, pause it if allowed and not already paused
-                        if canPause and not isPaused then
-                            pauseRoll(kind, true)
-                            task.wait(0.1) -- Small delay to let pause register
-                        end
-                        
-                        if isPaused then
-                            currentPhase = i
-                        end
-                    else
-                        -- This roll still has rolls left
-                        allAtZero = false
-                        if canPause then
-                            currentPhase = i
-                        end
+                    if rollsLeft == 0 and not isPaused and canPause then
+                        -- This roll is at 0, pause it now
+                        pauseRoll(kind, true)
+                        task.wait(0.2) -- Small delay to let pause register
+                    end
+                    
+                    if isPaused and rollsLeft == 0 then
+                        currentPhase = i
                     end
                 end
                 
                 S._diceStackPhase = currentPhase
+            end)
+        else
+            S._diceStackPhase = 0
+        end
+    end
+end)
+
+-- Dice Stacker - Task 2: Unpause + Arm Dice when All Ready
+task.spawn(function()
+    local RemoteFunction = nil
+    pcall(function()
+        RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
+    end)
+    
+    local function pauseRoll(kind, paused)
+        if RemoteFunction then
+            pcall(function()
+                RemoteFunction:InvokeServer("requestSetSpecialRollPaused", kind, paused)
+            end)
+        else
+            netFetch("RollService", "requestSetSpecialRollPaused", kind, paused)
+        end
+    end
+    
+    -- Priority order (highest first)
+    local PRIORITY = {"void", "diamond", "golden"}
+    
+    local function getSelectedByPriority()
+        local result = {}
+        for _, kind in ipairs(PRIORITY) do
+            for _, selected in ipairs(S.DiceSaveRolls) do
+                if kind == selected then
+                    table.insert(result, kind)
+                    break
+                end
+            end
+        end
+        return result
+    end
+    
+    while task.wait(1) do
+        if S.DiceEnabled and #S.DiceSaveRolls > 0 and not S._diceStackBusy then
+            pcall(function()
+                -- Use realtime cache if available, fallback to getData
+                local progression = getgenv().__specialRollProgressionCache or getData("specialRollProgression") or {}
+                local items = getData("items") or {}
+                local ordered = getSelectedByPriority()
                 
-                -- Step 2: ALL at 0 → synchronized unpause sequence
+                -- Check if ALL selected rolls are paused at 0
+                local allAtZero = true
+                for _, kind in ipairs(ordered) do
+                    local prog = progression[kind]
+                    local rollsLeft = prog and prog.rollsUntilNext or 999
+                    local isPaused = prog and prog.paused or false
+                    
+                    if rollsLeft ~= 0 or not isPaused then
+                        allAtZero = false
+                        break
+                    end
+                end
+                
+                -- ALL at 0 and paused → synchronized unpause sequence
                 if allAtZero then
                     -- Cooldown check: prevent immediate re-trigger after unpause
                     local timeSinceLastUnpause = os.time() - (S._diceLastUnpauseTime or 0)
@@ -2000,7 +2096,6 @@ task.spawn(function()
             end)
         else
             S._diceStackBusy = false
-            S._diceStackPhase = 0
         end
     end
 end)
