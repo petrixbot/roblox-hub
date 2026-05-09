@@ -16,8 +16,8 @@ local scriptPath = supportedGames[gameId]
 
 if scriptPath then
     local scriptUrl = baseUrl .. scriptPath
-    print("✅ PetrixHub support ", gameName)
+    print("[.petrixhub] ✅ Game supported ", gameName)
     loadstring(game:HttpGet(scriptUrl, true))()
 else
-    warn("⚠️ PetrixHub does not support ", gameName)
+    warn("[.petrixhub] ⚠️ Game not supported ", gameName)
 end
