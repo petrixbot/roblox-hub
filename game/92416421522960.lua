@@ -1854,7 +1854,7 @@ do
     end)
 end
 
--- Dice Stacker - Realtime Listener for specialRollProgression
+-- Listener for specialRollProgression
 task.spawn(function()
     local DataServiceEvent = nil
     pcall(function()
@@ -1900,13 +1900,19 @@ end)
 
 -- Dice Stacker - Task 1: Auto Pause Special Rolls at 0
 task.spawn(function()
+    local RemoteFunction = nil
+    pcall(function()
+        RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
+    end)
+    
     local function pauseRoll(kind, paused)
-        local RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
-        RemoteFunction:InvokeServer(
-            "requestSetSpecialRollPaused",
-            kind,
-            true
-        )
+        if RemoteFunction then
+            pcall(function()
+                RemoteFunction:InvokeServer("requestSetSpecialRollPaused", kind, paused)
+            end)
+        else
+            netFetch("RollService", "requestSetSpecialRollPaused", kind, paused)
+        end
     end
     
     -- Priority order (highest first)
@@ -1925,14 +1931,17 @@ task.spawn(function()
         return result
     end
     
-    while task.wait() do
+    -- Track last known rollsLeft to detect 0 transition
+    local lastRollsLeft = {}
+    
+    while task.wait(0.3) do
         if S.DiceEnabled and #S.DiceSaveRolls > 0 and not S._diceStackBusy then
             pcall(function()
                 -- Use realtime cache if available, fallback to getData
                 local progression = getgenv().__specialRollProgressionCache or getData("specialRollProgression") or {}
                 local ordered = getSelectedByPriority()
                 
-                -- Priority-based pause: pause at 0, but only if higher priority already paused
+                -- SIMPLE LOGIC: Pause IMMEDIATELY when rollsLeft becomes 0
                 local currentPhase = 0
                 
                 for i, kind in ipairs(ordered) do
@@ -1940,27 +1949,25 @@ task.spawn(function()
                     local rollsLeft = prog and prog.rollsUntilNext or 999
                     local isPaused = prog and prog.paused or false
                     
-                    -- Check if all higher priority rolls are paused at 0
-                    local canPause = true
-                    for j = 1, i - 1 do
-                        local higherKind = ordered[j]
-                        local higherProg = progression[higherKind]
-                        local higherPaused = higherProg and higherProg.paused or false
-                        local higherRolls = higherProg and higherProg.rollsUntilNext or 999
-                        
-                        -- Higher priority must be paused at 0 before we can pause this one
-                        if not (higherPaused and higherRolls == 0) then
-                            canPause = false
-                            break
-                        end
+                    -- Initialize last known value
+                    if not lastRollsLeft[kind] then
+                        lastRollsLeft[kind] = rollsLeft
                     end
                     
-                    if rollsLeft == 0 and not isPaused and canPause then
-                        -- This roll is at 0, pause it now
-                        pauseRoll(kind)
-                        task.wait(0.2) -- Small delay to let pause register
+                    -- Detect transition to 0 (from any value > 0 to 0)
+                    local justReachedZero = (lastRollsLeft[kind] > 0 and rollsLeft == 0)
+                    
+                    -- Pause immediately when reaching 0 (NO PRIORITY CHECK)
+                    if justReachedZero and not isPaused then
+                        pauseRoll(kind, true)
+                        print("[Dice Stacker] Paused " .. kind .. " at 0 left")
+                        task.wait(0.2)
                     end
                     
+                    -- Update last known value
+                    lastRollsLeft[kind] = rollsLeft
+                    
+                    -- Track phase
                     if isPaused and rollsLeft == 0 then
                         currentPhase = i
                     end
@@ -1970,11 +1977,12 @@ task.spawn(function()
             end)
         else
             S._diceStackPhase = 0
+            lastRollsLeft = {} -- Reset tracking when disabled
         end
     end
 end)
 
--- Dice Stacker - Task 2: Unpause + Arm Dice when All Ready
+-- Unpause & Arm Dice when All Ready
 task.spawn(function()
     local function pauseRoll(kind, paused)
         local RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
