@@ -1900,19 +1900,13 @@ end)
 
 -- Dice Stacker - Task 1: Auto Pause Special Rolls at 0
 task.spawn(function()
-    local RemoteFunction = nil
-    pcall(function()
-        RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
-    end)
-    
     local function pauseRoll(kind, paused)
-        if RemoteFunction then
-            pcall(function()
-                RemoteFunction:InvokeServer("requestSetSpecialRollPaused", kind, paused)
-            end)
-        else
-            netFetch("RollService", "requestSetSpecialRollPaused", kind, paused)
-        end
+        local RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
+        RemoteFunction:InvokeServer(
+            "requestSetSpecialRollPaused",
+            kind,
+            true
+        )
     end
     
     -- Priority order (highest first)
@@ -1931,7 +1925,7 @@ task.spawn(function()
         return result
     end
     
-    while task.wait(0.5) do
+    while task.wait() do
         if S.DiceEnabled and #S.DiceSaveRolls > 0 and not S._diceStackBusy then
             pcall(function()
                 -- Use realtime cache if available, fallback to getData
@@ -1963,7 +1957,7 @@ task.spawn(function()
                     
                     if rollsLeft == 0 and not isPaused and canPause then
                         -- This roll is at 0, pause it now
-                        pauseRoll(kind, true)
+                        pauseRoll(kind)
                         task.wait(0.2) -- Small delay to let pause register
                     end
                     
@@ -1982,19 +1976,13 @@ end)
 
 -- Dice Stacker - Task 2: Unpause + Arm Dice when All Ready
 task.spawn(function()
-    local RemoteFunction = nil
-    pcall(function()
-        RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
-    end)
-    
     local function pauseRoll(kind, paused)
-        if RemoteFunction then
-            pcall(function()
-                RemoteFunction:InvokeServer("requestSetSpecialRollPaused", kind, paused)
-            end)
-        else
-            netFetch("RollService", "requestSetSpecialRollPaused", kind, paused)
-        end
+        local RemoteFunction = ReplicatedStorage.Packages._Index["leifstout_networker@0.3.1"].networker._remotes.RollService.RemoteFunction
+        RemoteFunction:InvokeServer(
+            "requestSetSpecialRollPaused",
+            kind,
+            false
+        )
     end
     
     -- Priority order (highest first)
@@ -2013,7 +2001,7 @@ task.spawn(function()
         return result
     end
     
-    while task.wait(1) do
+    while task.wait() do
         if S.DiceEnabled and #S.DiceSaveRolls > 0 and not S._diceStackBusy then
             pcall(function()
                 -- Use realtime cache if available, fallback to getData
@@ -2078,7 +2066,7 @@ task.spawn(function()
                     
                     -- STEP 3: Unpause void, diamond, golden (rapid fire, no delay)
                     for _, kind in ipairs(ordered) do
-                        pauseRoll(kind, false)
+                        pauseRoll(kind)
                     end
                     
                     -- Mark unpause time
